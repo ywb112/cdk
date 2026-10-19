@@ -1,30 +1,28 @@
-# DeltaCrafting License System (Design Scaffold)
+# DeltaCrafting License System
 
-This repository is intended to host the **public, signed license-revocation manifest** for the DeltaCrafting desktop client.
+This public repository hosts the signed revocation manifest used by the DeltaCrafting desktop client.
 
 ## Security rules
 
 - Never commit the license-signing private key, GitHub tokens, passwords, full license keys, or personal data.
-- The private signing key must be generated and stored locally by the owner. The client contains only the matching public verification key.
-- The client must verify the manifest's digital signature before trusting any data in it.
-- A missing, invalid, stale, or unreachable manifest must fail closed if strict online startup verification is enabled.
-- GitHub is static file hosting here, not a private database or a full license API. It cannot reliably record every activation or provide instantaneous revocation.
-- A public revocation manifest should contain only random license identifiers (or their hashes), never the full license key or device details.
+- The issuer private key stays on the owner's computer. The client contains only the matching public verification key.
+- The client verifies the ECDSA/SHA-256 signature before trusting any manifest data.
+- The public manifest contains only random license IDs that have been revoked, never full tokens, device codes, names, or contact details.
+- GitHub is static file hosting, not a licensing API. It cannot reliably record activations or guarantee instantaneous revocation.
 
-## Planned layout
+## Files
 
-- `licenses/manifest.json`: public revocation state, once finalized.
-- `licenses/manifest.sig`: detached signature for the exact manifest bytes, once signing is implemented.
-- `docs/PROTOCOL.md`: protocol and implementation notes.
+- `licenses/manifest.signed.json`: one-file envelope containing base64-encoded exact payload bytes and their signature.
+- `docs/PROTOCOL.md`: protocol, issuer workflow, and limitations.
 
 ## Current status
 
-**Design scaffold only.** No production license has been issued. The manifest signature, issuer tool, and DeltaCrafting client integration have not yet been implemented or tested. Do not point a released client at this repository until signature verification and fail-closed behavior have been implemented and tested.
+The repository now has an initial signed manifest with an empty revocation list. The local source modification includes client-side online checks and issuer commands, but the Windows build and end-to-end behavior still need to be tested before distribution. No production licenses have been issued.
 
-## Proposed license types
+## License plans
 
-- `monthly`: 30 days from the defined activation/issue time.
-- `yearly`: 365 days from the defined activation/issue time.
+- `monthly`: 30 days from issue time.
+- `yearly`: 365 days from issue time.
 - `permanent`: no scheduled expiration.
 
-For the first release, licenses should be bound to one device. The issuer's private ledger should track issued license IDs and device bindings locally.
+Licenses are cryptographically bound to one device. The issuer's private ledger is stored locally.
