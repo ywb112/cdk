@@ -1,58 +1,50 @@
-# License protocol (implementation plan)
+# DeltaCrafting online license protocol
 
 ## Goals
 
-- No paid VPS for the first version.
+- Avoid a paid VPS for the first version by using this public GitHub repository as static manifest hosting.
 - One license is bound to one device.
-- Supported plans: monthly (30 days), yearly (365 days), permanent.
-- Client checks online on every startup; if it cannot fetch and verify current revocation state, it must not open the protected main UI.
-- Owner can revoke a license by publishing a newly signed manifest.
-- Keep license issuing private: the issuer private key never enters this repository or the client.
+- Plans: monthly (30 days), yearly (365 days), and permanent.
+- Client checks online at activation and every app startup. While running, it rechecks every five minutes.
+- If the network is unavailable or the signed manifest cannot be fetched or verified, the protected app is denied/closed (strict fail-closed behavior).
+- Owner can revoke a license by publishing a newer signed manifest.
+- The private signing key never enters this repository or the client.
 
-## Important architecture constraint
+## Public manifest format
 
-A static public GitHub repository is suitable for distributing a signed revocation manifest, but it is not a trusted transactional licensing server. It cannot securely enforce first-activation races, prove that a client activated, or reliably log last-seen timestamps. Since the repository is public, it must not contain license keys, user names, raw device IDs, or private activation records.
+`licenses/manifest.signed.json` is an envelope with:
+- `payloadBase64`: base64 of the exact UTF-8 JSON payload bytes.
+- `signatureBase64`: ECDSA/SHA-256 signature in RFC 3279 DER sequence format over those exact payload bytes.
 
-## Proposed flow
+The decoded payload has:
+- `schemaVersion`: currently 1.
+- `manifestVersion`: monotonically increasing integer.
+- `generatedAtUtc`: UTC timestamp.
+- `revokedLicenseIds`: array of random 32-hex license IDs.
 
-1. Owner generates an asymmetric signing key pair locally.
-2. Client embeds only the public verification key and the manifest URL.
-3. Owner issues a license locally. The local issuer ledger stores the license ID, key hash, plan, issue/expiry times, and device binding.
-4. Activation binds the license to the device and produces a signed license receipt. For a truly offline first activation, activation cannot be remotely confirmed; this design instead requires internet access and a separate owner-side workflow or future API for secure first-activation enforcement.
-5. At startup, client downloads the manifest bytes, verifies the detached signature against the embedded public key, checks freshness/version, and denies entry if network access or verification fails.
-6. Client checks whether the license ID appears in the revocation list and validates the signed receipt, expiry, and device binding.
-7. To revoke, owner updates the private issuer ledger, generates a new manifest, signs it locally, and publishes both manifest and signature.
-8. Optional running-session checks repeat the manifest validation every few minutes; revocation takes effect when a newer manifest is fetched and verified.
+The client verifies the signature using its embedded public key before parsing or trusting the payload. It stores the highest seen manifest version locally and rejects lower versions.
 
-## Public manifest shape (illustrative only)
+## License tokens
 
-```json
-{
-  "schemaVersion": 1,
-  "manifestVersion": 1,
-  "generatedAtUtc": "2026-01-01T00:00:00Z",
-  "revokedLicenseIds": []
-}
-```
+The owner signs device-bound license tokens locally. A token contains a random license ID (the `nonce`), product, device code, plan, issue time and optional expiry. The public manifest contains only the license ID when revoked; never publish the full token or device code.
 
-The manifest must be serialized canonically or signed as exact bytes. The signature must cover the exact downloaded manifest bytes. Do not accept unsigned content or silently fall back to cached authorization when strict online mode is selected.
+## Issuing and revoking
 
-## Publishing and caching
+- Keep the private key at `%LocalAppData%\\DeltaCrafterLicense\\issuer-private-key.pem` on the owner's PC.
+- Issue a card with `dotnet run --project .\\tools\\DeltaCrafter.LicenseIssuer -- <device-code> <monthly|yearly|permanent>`.
+- The issuer prints a 32-hex license ID. Record that ID; do not use the full card token as a revocation ID.
+- Revoke with `dotnet run --project .\\tools\\DeltaCrafter.LicenseIssuer -- revoke <license-id>`.
+- The tool writes a new signed manifest to `%LocalAppData%\\DeltaCrafterLicense\\manifest.signed.json`.
+- Upload that file to this repository, replacing `licenses/manifest.signed.json`.
+- Keep the local revocation ledger and signed manifest backed up. If local state is lost, download the latest manifest from GitHub before generating a new one so the version number does not go backwards.
 
-- Publish `licenses/manifest.json` and `licenses/manifest.sig` together in a single commit.
-- Client must use HTTPS and verify the signature before parsing/trusting content.
-- Track `manifestVersion` to reject rollback to an older manifest where possible.
-- GitHub CDN caching can delay revocation propagation; this is not instant remote control.
-- If GitHub is unavailable, strict fail-closed behavior means the software will not start, even for a valid permanent license.
+## Update source
 
-## Still to implement and test
+The app's manual update query is configured for the owner's fork `ywb112/DeltaCrafting`; automatic update checks at startup have been disabled. A GitHub Release must be published there before the manual update check can find a version.
 
-- Key-pair generation and safe private-key storage.
-- Canonical manifest serialization and detached signature generation.
-- Local issuer app and protected issuer ledger.
-- Device fingerprint strategy and reset workflow.
-- Client startup gate, online fetch, signature verification, expiry and revocation checks.
-- Update-source decoupling from upstream project.
-- Windows build and end-to-end tests.
+## Limitations
 
-This document describes a design, not a completed or tested licensing implementation.
+- GitHub static hosting is not a transactional licensing server. It cannot securely arbitrate two simultaneous first activations or reliably report actual activations/last-seen times.
+- CDN propagation may delay revocation. It takes effect when the client successfully retrieves the newer signed manifest.
+- Strict fail-closed means a GitHub outage also blocks startup, including for permanent cards.
+- This is not absolute anti-tamper protection; a sufficiently modified client can bypass local checks. Test the Windows build before distribution.
